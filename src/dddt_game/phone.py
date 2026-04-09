@@ -138,7 +138,7 @@ class PhoneSystem:
     def _draw_keyboard(self, surface: pygame.Surface, area: pygame.Rect, body_font: pygame.font.Font) -> None:
         self.key_buttons = []
 
-        rows = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM", "ÆØÅ"]
+        rows = ["QWERTYUIOPÅ", "ASDFGHJKLØÆ", "ZXCVBNM"]
         left = area.x + 16
         keyboard_top = area.y + 358
         gap = 6

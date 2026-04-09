@@ -5,9 +5,11 @@ from dataclasses import dataclass
 
 import pygame
 
-from .config import CONFIG
+from .config import CONFIG, Difficulty, DIFFICULTY_CONFIGS
 from .entities import PlayerCar, spawn_obstacle
 from .phone import PhoneSystem
+from .menu import MainMenu
+from .sprites import discover_car_variant_count, load_game_sprites
 
 
 @dataclass
@@ -18,11 +20,14 @@ class GameStats:
 
 
 class DontDrinkDriveTextGame:
-    def __init__(self) -> None:
+    def __init__(self, difficulty: Difficulty = Difficulty.MEDIUM, selected_car_index: int = 0) -> None:
         pygame.init()
         pygame.display.set_caption("Dont Drink & Drive & Text")
         self.screen = pygame.display.set_mode((CONFIG.screen_width, CONFIG.screen_height))
         self.clock = pygame.time.Clock()
+
+        self.difficulty = difficulty
+        self.difficulty_config = DIFFICULTY_CONFIGS[difficulty]
 
         self.title_font = pygame.font.SysFont("Segoe UI", 34, bold=True)
         self.body_font = pygame.font.SysFont("Segoe UI", 24)
@@ -42,18 +47,34 @@ class DontDrinkDriveTextGame:
             CONFIG.screen_height - 36,
         )
 
+        self.car_size = (70, 120)
+        self.selected_car_index = selected_car_index
+        self.sprites = load_game_sprites(
+            road_size=(CONFIG.road_width, CONFIG.screen_height),
+            car_size=self.car_size,
+        )
+
         self.reset_game()
 
     def reset_game(self) -> None:
+        selected_car_sprite = None
+        if self.sprites.car_variants:
+            selected_car_sprite = self.sprites.car_variants[
+                self.selected_car_index % len(self.sprites.car_variants)
+            ]
+
         self.player = PlayerCar(
             lane_index=1,
             lane_centers=self.lane_centers,
             y=CONFIG.screen_height - 160,
+            width=self.car_size[0],
+            height=self.car_size[1],
+            sprite=selected_car_sprite,
         )
         self.obstacles = []
         self.spawn_timer = 0.0
         self.road_scroll = 0.0
-        self.world_speed = CONFIG.initial_world_speed
+        self.world_speed = CONFIG.initial_world_speed * self.difficulty_config.speed_multiplier
         self.drunk_meter = 8.0
         self.drink_prompt_timer = 10.5
         self.drink_prompt_active = False
@@ -110,20 +131,30 @@ class DontDrinkDriveTextGame:
 
     def update(self, dt: float) -> None:
         self.stats.survived_seconds += dt
-        self.world_speed = min(CONFIG.max_world_speed, self.world_speed + dt * 2.1)
-        self.drunk_meter = min(100.0, self.drunk_meter + dt * 0.6)
+        max_speed = CONFIG.max_world_speed * self.difficulty_config.speed_multiplier
+        self.world_speed = min(max_speed, self.world_speed + dt * 2.1)
+        self.drunk_meter = min(100.0, self.drunk_meter + dt * 0.6 * self.difficulty_config.drunk_acceleration_multiplier)
 
         self.drink_prompt_timer -= dt
         if self.drink_prompt_timer <= 0:
             self.drink_prompt_active = True
             self.drink_prompt_timer = random.uniform(9.0, 13.0)
-            self.drunk_meter = min(100.0, self.drunk_meter + 2.0)
+            self.drunk_meter = min(100.0, self.drunk_meter + 2.0 * self.difficulty_config.drunk_acceleration_multiplier)
 
         self.spawn_timer += dt
-        spawn_interval = max(0.55, CONFIG.obstacle_spawn_interval - (self.world_speed - CONFIG.initial_world_speed) / 1300)
+        spawn_interval = max(0.55, (CONFIG.obstacle_spawn_interval * self.difficulty_config.spawn_interval_multiplier) - (self.world_speed - CONFIG.initial_world_speed * self.difficulty_config.speed_multiplier) / 1300)
         if self.spawn_timer >= spawn_interval:
             self.spawn_timer = 0.0
-            self.obstacles.append(spawn_obstacle(self.lane_centers, self.world_speed))
+            obstacle_sprite = random.choice(self.sprites.car_variants) if self.sprites.car_variants else None
+            self.obstacles.append(
+                spawn_obstacle(
+                    self.lane_centers,
+                    self.world_speed,
+                    sprite=obstacle_sprite,
+                    width=self.car_size[0],
+                    height=self.car_size[1],
+                )
+            )
 
         for obstacle in self.obstacles:
             obstacle.update(dt)
@@ -145,13 +176,14 @@ class DontDrinkDriveTextGame:
         self.player.update(dt)
 
         for obstacle in self.obstacles:
-            if obstacle.rect.colliderect(self.player.rect.inflate(-10, -8)):
+            if obstacle.collision_rect.colliderect(self.player.collision_rect):
                 self.trigger_crash("Du kolliderte med en annen bil.")
 
         if self.drunk_meter >= 100:
             self.trigger_crash("Sterk beruselse førte til total kontrollsvikt.")
 
-        if self.stats.survived_seconds >= CONFIG.inevitable_crash_time:
+        inevitable_crash_time = CONFIG.inevitable_crash_time * self.difficulty_config.inevitable_crash_time_modifier
+        if self.stats.survived_seconds >= inevitable_crash_time:
             self.trigger_crash("Tretthet og beruselse endte i en uunngåelig ulykke.")
 
         self.phone.update(dt)
@@ -197,7 +229,10 @@ class DontDrinkDriveTextGame:
             self.draw_crash_overlay()
 
     def draw_road(self) -> None:
-        pygame.draw.rect(self.screen, (65, 72, 93), self.road_rect)
+        if self.sprites.road is not None:
+            self.screen.blit(self.sprites.road, self.road_rect)
+        else:
+            pygame.draw.rect(self.screen, (65, 72, 93), self.road_rect)
 
         shoulder_left = pygame.Rect(0, 0, 25, CONFIG.screen_height)
         shoulder_right = pygame.Rect(CONFIG.road_width - 25, 0, 25, CONFIG.screen_height)
@@ -217,18 +252,21 @@ class DontDrinkDriveTextGame:
         title = self.title_font.render("Dont Drink & Drive & Text", True, (246, 249, 255))
         self.screen.blit(title, (24, 18))
 
+        difficulty_label = self.small_font.render(f"Difficulty: {self.difficulty.value}", True, (255, 200, 100))
+        self.screen.blit(difficulty_label, (28, 48))
+
         speed_label = self.body_font.render(f"Fart: {int(self.world_speed)}", True, (240, 247, 255))
-        self.screen.blit(speed_label, (28, 66))
+        self.screen.blit(speed_label, (28, 80))
 
         time_label = self.body_font.render(f"Tid: {self.stats.survived_seconds:05.1f}s", True, (240, 247, 255))
-        self.screen.blit(time_label, (28, 98))
+        self.screen.blit(time_label, (28, 112))
 
         dodged_label = self.body_font.render(f"Unngåtte biler: {self.stats.dodged_cars}", True, (240, 247, 255))
-        self.screen.blit(dodged_label, (28, 130))
+        self.screen.blit(dodged_label, (28, 144))
 
         drunk_title = self.small_font.render("Beruselse", True, (233, 240, 255))
-        self.screen.blit(drunk_title, (28, 164))
-        bar_bg = pygame.Rect(28, 188, 250, 20)
+        self.screen.blit(drunk_title, (28, 178))
+        bar_bg = pygame.Rect(28, 202, 250, 20)
         pygame.draw.rect(self.screen, (32, 44, 74), bar_bg, border_radius=9)
         fill_width = int((self.drunk_meter / 100.0) * (bar_bg.width - 4))
         fill_rect = pygame.Rect(bar_bg.x + 2, bar_bg.y + 2, fill_width, bar_bg.height - 4)
@@ -261,8 +299,11 @@ class DontDrinkDriveTextGame:
         title = self.title_font.render("Krasj", True, (255, 210, 210))
         self.screen.blit(title, (40, 220))
 
+        difficulty_text = self.small_font.render(f"Difficulty: {self.difficulty.value}", True, (255, 200, 150))
+        self.screen.blit(difficulty_text, (40, 250))
+
         reason = self.body_font.render(self.crash_reason, True, (255, 233, 233))
-        self.screen.blit(reason, (40, 268))
+        self.screen.blit(reason, (40, 288))
 
         consequence_lines = [
             "Konsekvenser kan være skader, straffesak,",
@@ -272,19 +313,36 @@ class DontDrinkDriveTextGame:
 
         for index, line in enumerate(consequence_lines):
             line_surf = self.body_font.render(line, True, (246, 246, 255))
-            self.screen.blit(line_surf, (40, 318 + index * 34))
+            self.screen.blit(line_surf, (40, 338 + index * 34))
 
         stats_line = self.body_font.render(
             f"Du holdt ut {self.stats.survived_seconds:0.1f}s, sendte {self.stats.texts_sent} meldinger og unngikk {self.stats.dodged_cars} biler.",
             True,
             (228, 242, 255),
         )
-        self.screen.blit(stats_line, (40, 430))
+        self.screen.blit(stats_line, (40, 450))
 
         reminder = self.body_font.render("Trykk R for nytt forsøk | ESC for å avslutte", True, (171, 217, 255))
-        self.screen.blit(reminder, (40, 476))
+        self.screen.blit(reminder, (40, 496))
 
 
 def run_game() -> None:
-    game = DontDrinkDriveTextGame()
-    game.run()
+    pygame.init()
+    screen = pygame.display.set_mode((CONFIG.screen_width, CONFIG.screen_height))
+    pygame.display.set_caption("Dont Drink & Drive & Text")
+    
+    menu = MainMenu(
+        CONFIG.screen_width,
+        CONFIG.screen_height,
+        car_count=discover_car_variant_count(),
+    )
+    selected_difficulty = menu.show()
+    
+    if selected_difficulty is not None:
+        game = DontDrinkDriveTextGame(
+            difficulty=selected_difficulty,
+            selected_car_index=menu.state.selected_car_index,
+        )
+        game.run()
+    
+    pygame.quit()

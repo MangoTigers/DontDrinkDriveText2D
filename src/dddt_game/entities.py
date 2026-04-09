@@ -11,11 +11,12 @@ class PlayerCar:
     lane_index: int
     lane_centers: list[int]
     y: int
-    width: int = 62
-    height: int = 108
+    width: int = 70
+    height: int = 120
     actual_x: float = 0.0
     target_lane_index: int | None = None
     move_speed: float = 600.0
+    sprite: pygame.Surface | None = None
 
     def __post_init__(self) -> None:
         if self.actual_x == 0.0:
@@ -53,8 +54,16 @@ class PlayerCar:
     def rect(self) -> pygame.Rect:
         return pygame.Rect(self.x, self.y, self.width, self.height)
 
+    @property
+    def collision_rect(self) -> pygame.Rect:
+        return self.rect.inflate(10, 14)
+
     def draw(self, surface: pygame.Surface) -> None:
         rect = self.rect
+        if self.sprite is not None:
+            surface.blit(self.sprite, rect)
+            return
+
         pygame.draw.rect(surface, (38, 198, 218), rect, border_radius=11)
         window = pygame.Rect(rect.x + 8, rect.y + 12, rect.width - 16, 28)
         pygame.draw.rect(surface, (220, 250, 255), window, border_radius=6)
@@ -70,8 +79,9 @@ class ObstacleCar:
     lane_centers: list[int]
     y: float
     speed: float
-    width: int = 60
-    height: int = 104
+    width: int = 70
+    height: int = 120
+    sprite: pygame.Surface | None = None
 
     @property
     def x(self) -> int:
@@ -81,19 +91,41 @@ class ObstacleCar:
     def rect(self) -> pygame.Rect:
         return pygame.Rect(int(self.x), int(self.y), self.width, self.height)
 
+    @property
+    def collision_rect(self) -> pygame.Rect:
+        return self.rect.inflate(8, 12)
+
     def update(self, dt: float) -> None:
         self.y += self.speed * dt
 
     def draw(self, surface: pygame.Surface) -> None:
         rect = self.rect
+        if self.sprite is not None:
+            surface.blit(self.sprite, rect)
+            return
+
         pygame.draw.rect(surface, (255, 184, 77), rect, border_radius=11)
         pygame.draw.rect(surface, (255, 245, 215), (rect.x + 8, rect.y + 12, rect.width - 16, 24), border_radius=6)
         pygame.draw.rect(surface, (255, 153, 153), (rect.x + 8, rect.bottom - 12, 10, 6), border_radius=2)
         pygame.draw.rect(surface, (255, 153, 153), (rect.right - 18, rect.bottom - 12, 10, 6), border_radius=2)
 
 
-def spawn_obstacle(lane_centers: list[int], world_speed: float) -> ObstacleCar:
+def spawn_obstacle(
+    lane_centers: list[int],
+    world_speed: float,
+    sprite: pygame.Surface | None = None,
+    width: int = 70,
+    height: int = 120,
+) -> ObstacleCar:
     lane_index = random.randrange(0, len(lane_centers))
     spawn_y = random.randrange(-280, -120)
     speed = world_speed + random.uniform(25, 110)
-    return ObstacleCar(lane_index=lane_index, lane_centers=lane_centers, y=float(spawn_y), speed=speed)
+    return ObstacleCar(
+        lane_index=lane_index,
+        lane_centers=lane_centers,
+        y=float(spawn_y),
+        speed=speed,
+        sprite=sprite,
+        width=width,
+        height=height,
+    )
