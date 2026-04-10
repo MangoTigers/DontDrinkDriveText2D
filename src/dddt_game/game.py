@@ -104,10 +104,19 @@ class DontDrinkDriveTextGame:
 
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if not self.crashed and self.phone_rect.collidepoint(event.pos):
-                        success = self.phone.process_click(event.pos)
-                        if success:
-                            self.stats.texts_sent = self.phone.completed
-                            self.spawn_happy_particles()
+                        if not self.phone.begin_swipe(event.pos):
+                            success = self.phone.process_click(event.pos)
+                            if success:
+                                self.stats.texts_sent = self.phone.completed
+                                self.spawn_happy_particles()
+
+                if event.type == pygame.MOUSEMOTION:
+                    if not self.crashed:
+                        self.phone.update_swipe(event.pos)
+
+                if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                    if not self.crashed:
+                        self.phone.end_swipe(event.pos)
 
             if not self.crashed:
                 self.update(dt)
