@@ -1,0 +1,7 @@
+[app]
+name = "Dont Drink Drive Text"
+package = "dddt_game"
+icon = "assets/sprites/car1.png"
+
+[build]
+source = "."
