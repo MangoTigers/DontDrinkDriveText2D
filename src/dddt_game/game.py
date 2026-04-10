@@ -8,7 +8,7 @@ import pygame
 from .config import CONFIG, Difficulty, DIFFICULTY_CONFIGS
 from .entities import PlayerCar, spawn_obstacle
 from .phone import PhoneSystem
-from .menu import MainMenu
+from .menu import MainMenu, PauseMenu
 from .sprites import discover_car_variant_count, load_game_sprites
 
 
@@ -84,9 +84,13 @@ class DontDrinkDriveTextGame:
         self.crashed = False
         self.crash_reason = ""
         self.final_overlay_time = 0.0
+        self.paused = False
+        self.pause_menu: PauseMenu | None = None
 
-    def run(self) -> None:
+    def run(self) -> str:
         running = True
+        self.pause_menu = PauseMenu(CONFIG.screen_width, CONFIG.screen_height)
+        
         while running:
             dt = self.clock.tick(CONFIG.fps) / 1000.0
 
@@ -94,16 +98,30 @@ class DontDrinkDriveTextGame:
                 if event.type == pygame.QUIT:
                     running = False
 
-                if event.type == pygame.KEYDOWN:
+                if self.paused and self.pause_menu:
+                    pause_result = self.pause_menu.handle_input(event)
+                    if pause_result == "resume":
+                        self.paused = False
+                    elif pause_result == "menu":
+                        return "menu"
+                    elif pause_result == "quit":
+                        return "quit"
+                elif event.type == pygame.KEYDOWN:
                     if not self.crashed:
-                        self.handle_keydown(event)
-                    if self.crashed and event.key == pygame.K_r:
-                        self.reset_game()
-                    if event.key == pygame.K_ESCAPE:
-                        running = False
+                        if event.key == pygame.K_ESCAPE:
+                            self.paused = True
+                        else:
+                            self.handle_keydown(event)
+                    elif self.crashed:
+                        if event.key == pygame.K_r:
+                            self.reset_game()
+                        elif event.key == pygame.K_m:
+                            return "menu"
+                        elif event.key == pygame.K_ESCAPE:
+                            return "quit"
 
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    if not self.crashed and self.phone_rect.collidepoint(event.pos):
+                    if not self.crashed and not self.paused and self.phone_rect.collidepoint(event.pos):
                         if not self.phone.begin_swipe(event.pos):
                             success = self.phone.process_click(event.pos)
                             if success:
@@ -111,22 +129,22 @@ class DontDrinkDriveTextGame:
                                 self.spawn_happy_particles()
 
                 if event.type == pygame.MOUSEMOTION:
-                    if not self.crashed:
+                    if not self.crashed and not self.paused:
                         self.phone.update_swipe(event.pos)
 
                 if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                    if not self.crashed:
+                    if not self.crashed and not self.paused:
                         self.phone.end_swipe(event.pos)
 
-            if not self.crashed:
+            if not self.crashed and not self.paused:
                 self.update(dt)
-            else:
+            elif self.crashed:
                 self.final_overlay_time += dt
 
             self.draw()
             pygame.display.flip()
 
-        pygame.quit()
+        return "quit"
 
     def handle_keydown(self, event: pygame.event.Event) -> None:
         if event.key in (pygame.K_LEFT, pygame.K_a):
@@ -197,6 +215,7 @@ class DontDrinkDriveTextGame:
 
         self.phone.update(dt)
         self.update_particles(dt)
+        self.road_scroll = (self.road_scroll + self.world_speed / 4.8) % 80
 
     def trigger_crash(self, reason: str) -> None:
         if self.crashed:
@@ -236,6 +255,8 @@ class DontDrinkDriveTextGame:
 
         if self.crashed:
             self.draw_crash_overlay()
+        elif self.paused and self.pause_menu:
+            self.pause_menu.draw()
 
     def draw_road(self) -> None:
         if self.sprites.road is not None:
@@ -248,7 +269,6 @@ class DontDrinkDriveTextGame:
         pygame.draw.rect(self.screen, (255, 214, 102), shoulder_left)
         pygame.draw.rect(self.screen, (255, 214, 102), shoulder_right)
 
-        self.road_scroll = (self.road_scroll + self.world_speed / 4.8) % 80
         lane_width = (CONFIG.road_width - (CONFIG.lane_padding * 2)) / CONFIG.lane_count
         for i in range(1, CONFIG.lane_count):
             x = int(CONFIG.lane_padding + i * lane_width)
@@ -331,7 +351,7 @@ class DontDrinkDriveTextGame:
         )
         self.screen.blit(stats_line, (40, 450))
 
-        reminder = self.body_font.render("Trykk R for nytt forsøk | ESC for å avslutte", True, (171, 217, 255))
+        reminder = self.body_font.render("R: Prøv igjen | M: Hovedmeny | ESC: Avslutt", True, (171, 217, 255))
         self.screen.blit(reminder, (40, 496))
 
 
@@ -345,13 +365,28 @@ def run_game() -> None:
         CONFIG.screen_height,
         car_count=discover_car_variant_count(),
     )
-    selected_difficulty = menu.show()
     
-    if selected_difficulty is not None:
-        game = DontDrinkDriveTextGame(
-            difficulty=selected_difficulty,
-            selected_car_index=menu.state.selected_car_index,
-        )
-        game.run()
+    while True:
+        selected_difficulty = menu.show()
+        
+        if selected_difficulty is None:
+            break
+        
+        while True:
+            game = DontDrinkDriveTextGame(
+                difficulty=selected_difficulty,
+                selected_car_index=menu.state.selected_car_index,
+            )
+            result = game.run()
+            
+            if result == "restart":
+                continue
+            elif result == "menu":
+                break
+            else:
+                break
+        
+        if result == "quit":
+            break
     
     pygame.quit()
