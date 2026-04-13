@@ -54,6 +54,12 @@ class DontDrinkDriveTextGame:
             car_size=self.car_size,
         )
 
+        # Fixed-step simulation keeps game speed stable even if rendering FPS varies.
+        self.fixed_dt = 1.0 / CONFIG.fps
+        self.max_frame_dt = 0.05
+        self.max_update_steps = 5
+        self._time_accumulator = 0.0
+
         self.reset_game()
 
     def reset_game(self) -> None:
@@ -86,13 +92,32 @@ class DontDrinkDriveTextGame:
         self.final_overlay_time = 0.0
         self.paused = False
         self.pause_menu: PauseMenu | None = None
+        self._time_accumulator = 0.0
+
+    def _step_simulation(self, frame_dt: float) -> None:
+        clamped_dt = min(frame_dt, self.max_frame_dt)
+        self._time_accumulator += clamped_dt
+
+        steps = 0
+        while self._time_accumulator >= self.fixed_dt and steps < self.max_update_steps:
+            if not self.crashed and not self.paused:
+                self.update(self.fixed_dt)
+            elif self.crashed:
+                self.final_overlay_time += self.fixed_dt
+
+            self._time_accumulator -= self.fixed_dt
+            steps += 1
+
+        # Drop accumulated lag if we hit step cap to avoid spiral-of-death slowdowns.
+        if steps >= self.max_update_steps:
+            self._time_accumulator = 0.0
 
     def run(self) -> str:
         running = True
         self.pause_menu = PauseMenu(CONFIG.screen_width, CONFIG.screen_height)
         
         while running:
-            dt = self.clock.tick(CONFIG.fps) / 1000.0
+            frame_dt = self.clock.tick(CONFIG.fps) / 1000.0
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -136,10 +161,7 @@ class DontDrinkDriveTextGame:
                     if not self.crashed and not self.paused:
                         self.phone.end_swipe(event.pos)
 
-            if not self.crashed and not self.paused:
-                self.update(dt)
-            elif self.crashed:
-                self.final_overlay_time += dt
+            self._step_simulation(frame_dt)
 
             self.draw()
             pygame.display.flip()
@@ -154,7 +176,7 @@ class DontDrinkDriveTextGame:
         self.pause_menu = PauseMenu(CONFIG.screen_width, CONFIG.screen_height)
 
         while running:
-            dt = self.clock.tick(CONFIG.fps) / 1000.0
+            frame_dt = self.clock.tick(CONFIG.fps) / 1000.0
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -198,10 +220,7 @@ class DontDrinkDriveTextGame:
                     if not self.crashed and not self.paused:
                         self.phone.end_swipe(event.pos)
 
-            if not self.crashed and not self.paused:
-                self.update(dt)
-            elif self.crashed:
-                self.final_overlay_time += dt
+            self._step_simulation(frame_dt)
 
             self.draw()
             pygame.display.flip()
@@ -263,7 +282,7 @@ class DontDrinkDriveTextGame:
             else:
                 self.player.set_target_lane_right()
 
-        self.player.update(dt)
+        self.player.update(dt, self.drunk_meter)
 
         for obstacle in self.obstacles:
             if obstacle.collision_rect.colliderect(self.player.collision_rect):
