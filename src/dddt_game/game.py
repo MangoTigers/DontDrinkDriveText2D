@@ -2,14 +2,28 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
+from pathlib import Path
 
 import pygame
 
-from .config import CONFIG, Difficulty, DIFFICULTY_CONFIGS
-from .entities import PlayerCar, spawn_obstacle
-from .phone import PhoneSystem
-from .menu import MainMenu, PauseMenu
-from .sprites import discover_car_variant_count, load_game_sprites
+if __package__ in (None, ""):
+    import sys
+
+    # Support direct execution: python src/dddt_game/game.py
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from dddt_game.config import CONFIG, Difficulty, DIFFICULTY_CONFIGS
+    from dddt_game.entities import PlayerCar, spawn_obstacle
+    from dddt_game.localization import Language, crash_consequence_lines, difficulty_label, t
+    from dddt_game.phone import PhoneSystem
+    from dddt_game.menu import MainMenu, PauseMenu
+    from dddt_game.sprites import discover_car_variant_count, load_game_sprites
+else:
+    from .config import CONFIG, Difficulty, DIFFICULTY_CONFIGS
+    from .entities import PlayerCar, spawn_obstacle
+    from .localization import Language, crash_consequence_lines, difficulty_label, t
+    from .phone import PhoneSystem
+    from .menu import MainMenu, PauseMenu
+    from .sprites import discover_car_variant_count, load_game_sprites
 
 
 @dataclass
@@ -20,7 +34,12 @@ class GameStats:
 
 
 class DontDrinkDriveTextGame:
-    def __init__(self, difficulty: Difficulty = Difficulty.MEDIUM, selected_car_index: int = 0) -> None:
+    def __init__(
+        self,
+        difficulty: Difficulty = Difficulty.MEDIUM,
+        selected_car_index: int = 0,
+        language: Language = Language.NORWEGIAN,
+    ) -> None:
         pygame.init()
         pygame.display.set_caption("Dont Drink & Drive & Text")
         self.screen = pygame.display.set_mode((CONFIG.screen_width, CONFIG.screen_height))
@@ -28,6 +47,7 @@ class DontDrinkDriveTextGame:
 
         self.difficulty = difficulty
         self.difficulty_config = DIFFICULTY_CONFIGS[difficulty]
+        self.language = language
 
         self.title_font = pygame.font.SysFont("Segoe UI", 34, bold=True)
         self.body_font = pygame.font.SysFont("Segoe UI", 24)
@@ -84,7 +104,7 @@ class DontDrinkDriveTextGame:
         self.drunk_meter = 8.0
         self.drink_prompt_timer = 10.5
         self.drink_prompt_active = False
-        self.phone = PhoneSystem(CONFIG.objective_texts_required)
+        self.phone = PhoneSystem(CONFIG.objective_texts_required, language=self.language)
         self.stats = GameStats()
         self.mood_particles = []
         self.crashed = False
@@ -114,7 +134,7 @@ class DontDrinkDriveTextGame:
 
     def run(self) -> str:
         running = True
-        self.pause_menu = PauseMenu(CONFIG.screen_width, CONFIG.screen_height)
+        self.pause_menu = PauseMenu(CONFIG.screen_width, CONFIG.screen_height, self.language)
         
         while running:
             frame_dt = self.clock.tick(CONFIG.fps) / 1000.0
@@ -173,7 +193,7 @@ class DontDrinkDriveTextGame:
         import asyncio
 
         running = True
-        self.pause_menu = PauseMenu(CONFIG.screen_width, CONFIG.screen_height)
+        self.pause_menu = PauseMenu(CONFIG.screen_width, CONFIG.screen_height, self.language)
 
         while running:
             frame_dt = self.clock.tick(CONFIG.fps) / 1000.0
@@ -286,14 +306,14 @@ class DontDrinkDriveTextGame:
 
         for obstacle in self.obstacles:
             if obstacle.collision_rect.colliderect(self.player.collision_rect):
-                self.trigger_crash("Du kolliderte med en annen bil.")
+                self.trigger_crash(t(self.language, "crash_reason_collision"))
 
         if self.drunk_meter >= 100:
-            self.trigger_crash("Sterk beruselse førte til total kontrollsvikt.")
+            self.trigger_crash(t(self.language, "crash_reason_drunk"))
 
         inevitable_crash_time = CONFIG.inevitable_crash_time * self.difficulty_config.inevitable_crash_time_modifier
         if self.stats.survived_seconds >= inevitable_crash_time:
-            self.trigger_crash("Tretthet og beruselse endte i en uunngåelig ulykke.")
+            self.trigger_crash(t(self.language, "crash_reason_time"))
 
         self.phone.update(dt)
         self.update_particles(dt)
@@ -360,22 +380,26 @@ class DontDrinkDriveTextGame:
                 y += 80
 
     def draw_ui(self) -> None:
-        title = self.title_font.render("Dont Drink & Drive & Text", True, (246, 249, 255))
+        title = self.title_font.render(t(self.language, "app_title"), True, (246, 249, 255))
         self.screen.blit(title, (24, 18))
 
-        difficulty_label = self.small_font.render(f"Difficulty: {self.difficulty.value}", True, (255, 200, 100))
-        self.screen.blit(difficulty_label, (28, 48))
+        difficulty_text = self.small_font.render(
+            f"{t(self.language, 'game_difficulty')} {difficulty_label(self.language, self.difficulty)}",
+            True,
+            (255, 200, 100),
+        )
+        self.screen.blit(difficulty_text, (28, 48))
 
-        speed_label = self.body_font.render(f"Fart: {int(self.world_speed)}", True, (240, 247, 255))
+        speed_label = self.body_font.render(f"{t(self.language, 'game_speed')} {int(self.world_speed)}", True, (240, 247, 255))
         self.screen.blit(speed_label, (28, 80))
 
-        time_label = self.body_font.render(f"Tid: {self.stats.survived_seconds:05.1f}s", True, (240, 247, 255))
+        time_label = self.body_font.render(f"{t(self.language, 'game_time')} {self.stats.survived_seconds:05.1f}s", True, (240, 247, 255))
         self.screen.blit(time_label, (28, 112))
 
-        dodged_label = self.body_font.render(f"Unngåtte biler: {self.stats.dodged_cars}", True, (240, 247, 255))
+        dodged_label = self.body_font.render(f"{t(self.language, 'game_dodged')} {self.stats.dodged_cars}", True, (240, 247, 255))
         self.screen.blit(dodged_label, (28, 144))
 
-        drunk_title = self.small_font.render("Beruselse", True, (233, 240, 255))
+        drunk_title = self.small_font.render(t(self.language, "game_drunk"), True, (233, 240, 255))
         self.screen.blit(drunk_title, (28, 178))
         bar_bg = pygame.Rect(28, 202, 250, 20)
         pygame.draw.rect(self.screen, (32, 44, 74), bar_bg, border_radius=9)
@@ -384,13 +408,13 @@ class DontDrinkDriveTextGame:
         bar_color = (85, 220, 155) if self.drunk_meter < 40 else (255, 199, 87) if self.drunk_meter < 75 else (255, 102, 102)
         pygame.draw.rect(self.screen, bar_color, fill_rect, border_radius=7)
 
-        controls = self.small_font.render("Styr: A/D eller piler | Drikk: Mellomrom", True, (226, 236, 255))
+        controls = self.small_font.render(t(self.language, "game_controls"), True, (226, 236, 255))
         self.screen.blit(controls, (28, CONFIG.screen_height - 38))
 
         if self.drink_prompt_active:
             prompt_bg = pygame.Rect(CONFIG.road_width - 320, 20, 280, 44)
             pygame.draw.rect(self.screen, (255, 239, 204), prompt_bg, border_radius=8)
-            prompt = self.small_font.render("Feststemning! Trykk SPACE for å drikke", True, (148, 94, 23))
+            prompt = self.small_font.render(t(self.language, "game_drink_prompt"), True, (148, 94, 23))
             self.screen.blit(prompt, (prompt_bg.x + 10, prompt_bg.y + 12))
 
     def draw_happy_particles(self) -> None:
@@ -407,33 +431,37 @@ class DontDrinkDriveTextGame:
         overlay.fill((15, 12, 20, fade))
         self.screen.blit(overlay, (0, 0))
 
-        title = self.title_font.render("Krasj", True, (255, 210, 210))
+        title = self.title_font.render(t(self.language, "crash_title"), True, (255, 210, 210))
         self.screen.blit(title, (40, 220))
 
-        difficulty_text = self.small_font.render(f"Difficulty: {self.difficulty.value}", True, (255, 200, 150))
+        difficulty_text = self.small_font.render(
+            f"{t(self.language, 'crash_difficulty')} {difficulty_label(self.language, self.difficulty)}",
+            True,
+            (255, 200, 150),
+        )
         self.screen.blit(difficulty_text, (40, 250))
 
         reason = self.body_font.render(self.crash_reason, True, (255, 233, 233))
         self.screen.blit(reason, (40, 288))
 
-        consequence_lines = [
-            "Konsekvenser kan være skader, straffesak,",
-            "økonomisk belastning, traumer og tapt tillit.",
-            "Ingen melding eller drink er verdt et liv.",
-        ]
+        consequence_lines = crash_consequence_lines(self.language)
 
         for index, line in enumerate(consequence_lines):
             line_surf = self.body_font.render(line, True, (246, 246, 255))
             self.screen.blit(line_surf, (40, 338 + index * 34))
 
         stats_line = self.body_font.render(
-            f"Du holdt ut {self.stats.survived_seconds:0.1f}s, sendte {self.stats.texts_sent} meldinger og unngikk {self.stats.dodged_cars} biler.",
+            t(self.language, "crash_stats").format(
+                seconds=self.stats.survived_seconds,
+                texts=self.stats.texts_sent,
+                cars=self.stats.dodged_cars,
+            ),
             True,
             (228, 242, 255),
         )
         self.screen.blit(stats_line, (40, 450))
 
-        reminder = self.body_font.render("R: Prøv igjen | M: Hovedmeny | ESC: Avslutt", True, (171, 217, 255))
+        reminder = self.body_font.render(t(self.language, "crash_reminder"), True, (171, 217, 255))
         self.screen.blit(reminder, (40, 496))
 
 
@@ -453,11 +481,14 @@ def run_game() -> None:
         
         if selected_difficulty is None:
             break
+
+        selected_language = menu.state.selected_language
         
         while True:
             game = DontDrinkDriveTextGame(
                 difficulty=selected_difficulty,
                 selected_car_index=menu.state.selected_car_index,
+                language=selected_language,
             )
             result = game.run()
             
@@ -492,10 +523,13 @@ async def run_game_async() -> None:
         if selected_difficulty is None:
             break
 
+        selected_language = menu.state.selected_language
+
         while True:
             game = DontDrinkDriveTextGame(
                 difficulty=selected_difficulty,
                 selected_car_index=menu.state.selected_car_index,
+                language=selected_language,
             )
             result = await game.run_async()
 
