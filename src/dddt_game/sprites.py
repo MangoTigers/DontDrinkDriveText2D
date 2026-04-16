@@ -12,9 +12,25 @@ class SpriteSet:
     road: pygame.Surface | None
 
 
+def _resolve_sprites_dir() -> Path:
+    """Find sprite directory across desktop and pygbag launch contexts."""
+    candidates = [
+        Path(__file__).resolve().parents[2] / "assets" / "sprites",
+        Path.cwd() / "assets" / "sprites",
+        Path("assets") / "sprites",
+    ]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    # Fall back to source-root-relative path so loading gracefully returns None.
+    return candidates[0]
+
+
 def load_game_sprites(road_size: tuple[int, int], car_size: tuple[int, int]) -> SpriteSet:
     """Load and scale game sprites from assets/sprites."""
-    sprites_dir = Path(__file__).resolve().parents[2] / "assets" / "sprites"
+    sprites_dir = _resolve_sprites_dir()
 
     return SpriteSet(
         car_variants=_load_car_variants(sprites_dir, car_size),
@@ -23,7 +39,7 @@ def load_game_sprites(road_size: tuple[int, int], car_size: tuple[int, int]) -> 
 
 
 def discover_car_variant_count() -> int:
-    sprites_dir = Path(__file__).resolve().parents[2] / "assets" / "sprites"
+    sprites_dir = _resolve_sprites_dir()
     shared_variants = sorted(sprites_dir.glob("car*.png"))
     if shared_variants:
         return len(shared_variants)

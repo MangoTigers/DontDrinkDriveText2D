@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
 
@@ -17,12 +18,15 @@ class PlayerCar:
     target_lane_index: int | None = None
     move_speed: float = 600.0
     sprite: pygame.Surface | None = None
+    sway_phase: float = 0.0
+    sway_offset_x: float = 0.0
 
     def __post_init__(self) -> None:
         if self.actual_x == 0.0:
             self.actual_x = float(self.lane_centers[self.lane_index] - self.width // 2)
         if self.target_lane_index is None:
             self.target_lane_index = self.lane_index
+        self.sway_phase = random.uniform(0.0, 6.283185307)
 
     def set_target_lane_left(self) -> None:
         current_target = self.target_lane_index if self.target_lane_index is not None else self.lane_index
@@ -32,7 +36,7 @@ class PlayerCar:
         current_target = self.target_lane_index if self.target_lane_index is not None else self.lane_index
         self.target_lane_index = min(len(self.lane_centers) - 1, current_target + 1)
 
-    def update(self, dt: float) -> None:
+    def update(self, dt: float, drunk_meter: float = 0.0) -> None:
         if self.target_lane_index is None:
             self.target_lane_index = self.lane_index
         
@@ -46,9 +50,15 @@ class PlayerCar:
             self.actual_x = target_x
             self.lane_index = self.target_lane_index
 
+        # Add visible horizontal wobble when intoxicated; intensity and speed scale with drunk meter.
+        sway_intensity = max(0.0, min(1.0, (drunk_meter - 25.0) / 75.0))
+        self.sway_phase += dt * (5.0 + 3.5 * sway_intensity)
+        max_sway_pixels = 26.0
+        self.sway_offset_x = max_sway_pixels * sway_intensity * math.sin(self.sway_phase)
+
     @property
     def x(self) -> int:
-        return int(self.actual_x)
+        return int(self.actual_x + self.sway_offset_x)
 
     @property
     def rect(self) -> pygame.Rect:
@@ -56,7 +66,7 @@ class PlayerCar:
 
     @property
     def collision_rect(self) -> pygame.Rect:
-        return self.rect.inflate(10, 14)
+        return self.rect.inflate(-8, -10)
 
     def draw(self, surface: pygame.Surface) -> None:
         rect = self.rect
